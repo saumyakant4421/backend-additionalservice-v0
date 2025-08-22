@@ -1,0 +1,14 @@
+# Render Blueprint Spec
+# See https://render.com/docs/infrastructure-as-code for details
+
+services:
+  - type: web
+    name: movie-service-marathon
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Add your other environment variables here, or set them in the Render dashboard
