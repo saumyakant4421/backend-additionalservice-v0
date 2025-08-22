@@ -1,7 +1,4 @@
-// Add a root route for service status
-app.get('/', (req, res) => {
-  res.status(200).json({ message: 'Additional Service is up and running' });
-});
+
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
@@ -14,6 +11,11 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// Add a root route for service status (after app is initialized)
+app.get('/', (req, res) => {
+  res.status(200).json({ message: 'Additional Service is up and running' });
+});
 
 // Mount the router
 app.use('/api/tools/watchparty', watchPartyRoutes);
