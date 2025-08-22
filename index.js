@@ -1,3 +1,7 @@
+// Add a root route for service status
+app.get('/', (req, res) => {
+  res.status(200).json({ message: 'Additional Service is up and running' });
+});
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
