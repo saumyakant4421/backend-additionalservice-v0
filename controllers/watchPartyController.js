@@ -8,18 +8,21 @@ const {
   getMessages,
   getNotifications,
   addUserPublicKey,
-  getUsers
+  getUsers,
+  searchUsersByUsernamePrefix,
 } = require('../services/watchPartyService');
 const logger = require('../services/logger');
 
 const createWatchPartyHandler = async (req, res) => {
   const userId = req.user.uid;
   const { title, description, dateTime, movieIds, isPublic, invitedUserIds } = req.body;
+  // Support invitedUsers (array of usernames or userIds) for convenience in clients
+  const invitedUsers = req.body.invitedUsers || invitedUserIds;
   if (!title || !dateTime || !movieIds || !Array.isArray(movieIds)) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
   try {
-    const watchParty = await createWatchParty(userId, { title, description, dateTime, movieIds, isPublic, invitedUserIds });
+  const watchParty = await createWatchParty(userId, { title, description, dateTime, movieIds, isPublic, invitedUserIds, invitedUsers });
     res.json(watchParty);
   } catch (error) {
   logger.error(`Controller Error in createWatchPartyHandler for user ${userId}: ${error.message}`);
@@ -145,6 +148,20 @@ const getUsersHandler = async (req, res) => {
   }
 };
 
+const searchUsersHandler = async (req, res) => {
+  const q = req.query.q || req.query.query || req.query.qs;
+  if (!q || typeof q !== 'string' || q.trim().length < 1) {
+    return res.status(400).json({ error: 'Invalid search query' });
+  }
+  try {
+    const users = await searchUsersByUsernamePrefix(q, 20);
+    res.status(200).json(users);
+  } catch (err) {
+    logger.error('Error in searchUsersHandler:', err);
+    res.status(500).json({ error: 'Failed to search users' });
+  }
+};
+
 module.exports = {
   createWatchPartyHandler,
   joinWatchPartyHandler,
@@ -155,5 +172,6 @@ module.exports = {
   getMessagesHandler,
   getNotificationsHandler,
   addUserPublicKeyHandler,
-  getUsersHandler
+  getUsersHandler,
+  searchUsersHandler,
 };

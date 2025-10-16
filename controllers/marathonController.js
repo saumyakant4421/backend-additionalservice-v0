@@ -54,8 +54,10 @@ const getBucketHandler = async (req, res) => {
     const bucket = await getBucket(userId);
     res.json(bucket);
   } catch (error) {
-    console.error('Controller Error in getBucketHandler:', error.message);
-    res.status(500).json({ error: 'Failed to fetch bucket' });
+    // Log full error for debugging (stack and object)
+    console.error('Controller Error in getBucketHandler:', error);
+    console.error(error.stack);
+    res.status(500).json({ error: error.message || 'Failed to fetch bucket' });
   }
 };
 

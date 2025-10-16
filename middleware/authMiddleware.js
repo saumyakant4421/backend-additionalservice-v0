@@ -1,5 +1,4 @@
 const admin = require('firebase-admin');
-require('../config/firebase'); // Ensure Firebase is initialized
 
 const authMiddleware = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -11,6 +10,12 @@ const authMiddleware = async (req, res, next) => {
 
   const idToken = authHeader.split('Bearer ')[1];
   console.log('Received token:', idToken.substring(0, 10) + '...');
+
+  // Ensure Firebase admin is initialized before calling auth APIs
+  if (!Array.isArray(admin.apps) || admin.apps.length === 0) {
+    console.error('Firebase admin SDK not initialized when authMiddleware was called');
+    return res.status(503).json({ error: 'Service Unavailable: Authentication service not initialized' });
+  }
 
   try {
     const decodedToken = await admin.auth().verifyIdToken(idToken);

@@ -1,6 +1,6 @@
 const axios = require('axios');
 const admin = require('firebase-admin');
-const { db } = require('../config/firebase');
+const firebaseConfig = require('../config/firebase');
 const dotenv = require('dotenv');
 const NodeCache = require('node-cache');
 
@@ -64,6 +64,7 @@ const addMovieToBucket = async (userId, movieId) => {
   const movie = await getMovieDetails(movieId);
   if (!movie.runtime) throw new Error('Movie runtime not available');
 
+  const db = firebaseConfig.getDb();
   const bucketRef = db.collection('buckets').doc(userId);
   const bucketDoc = await bucketRef.get();
   let movies = bucketDoc.exists ? bucketDoc.data().movies : [];
@@ -95,6 +96,7 @@ const addMovieToBucket = async (userId, movieId) => {
 };
 
 const removeMovieFromBucket = async (userId, movieId) => {
+  const db = firebaseConfig.getDb();
   const bucketRef = db.collection('buckets').doc(userId);
   const bucketDoc = await bucketRef.get();
   if (!bucketDoc.exists) throw new Error('Bucket not found');
@@ -118,13 +120,19 @@ const getBucket = async (userId) => {
     return cache.get(cacheKey);
   }
 
-  const bucketRef = db.collection('buckets').doc(userId);
-  const bucketDoc = await bucketRef.get();
-  const result = bucketDoc.exists ? { userId, movies: bucketDoc.data().movies } : { userId, movies: [] };
-  
-  // Cache bucket data for 10 minutes
-  cache.set(cacheKey, result, 600);
-  return result;
+  try {
+    const db = firebaseConfig.getDb();
+    const bucketRef = db.collection('buckets').doc(userId);
+    const bucketDoc = await bucketRef.get();
+    const result = bucketDoc.exists ? { userId, movies: bucketDoc.data().movies } : { userId, movies: [] };
+
+    // Cache bucket data for 10 minutes
+    cache.set(cacheKey, result, 600);
+    return result;
+  } catch (err) {
+    console.error('Error fetching bucket from Firestore for user', userId, err);
+    throw new Error('Firestore error when fetching bucket');
+  }
 };
 
 const calculateTotalRuntime = async (userId) => {

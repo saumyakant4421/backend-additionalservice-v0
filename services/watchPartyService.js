@@ -1,5 +1,5 @@
 const admin = require('firebase-admin');
-const { db } = require('../config/firebase');
+const firebaseConfig = require('../config/firebase');
 const axios = require('axios');
 const dotenv = require('dotenv');
 const sodium = require('sodium-native');
@@ -72,7 +72,7 @@ const searchMovies = async (query) => {
 };
 
 const createWatchParty = async (userId, { title, description, dateTime, movieIds, isPublic, invitedUserIds }) => {
-  const watchPartyRef = db.collection('watchParties').doc();
+  const watchPartyRef = firebaseConfig.getDb().collection('watchParties').doc();
   const movies = await Promise.all(movieIds.map(async (movieId) => {
     const movie = await getMovieDetails(movieId);
     return {
@@ -83,15 +83,20 @@ const createWatchParty = async (userId, { title, description, dateTime, movieIds
     };
   }));
 
+  // Defensive handling for dateTime and invitedUserIds
+  const parsedDate = new Date(dateTime);
+  if (isNaN(parsedDate.getTime())) {
+    throw new Error('Invalid dateTime provided');
+  }
   const watchPartyData = {
     title,
     description,
     hostId: userId,
-    dateTime: admin.firestore.Timestamp.fromDate(new Date(dateTime)),
+    dateTime: admin.firestore.Timestamp.fromDate(parsedDate),
     movies,
     isPublic: isPublic || false,
     participants: [userId],
-    invitedUserIds: invitedUserIds || [],
+    invitedUserIds: Array.isArray(invitedUserIds) ? invitedUserIds : [],
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     status: 'scheduled',
   };
@@ -119,11 +124,15 @@ const createWatchParty = async (userId, { title, description, dateTime, movieIds
 };
 
 const joinWatchParty = async (userId, watchPartyId) => {
-  const watchPartyRef = db.collection('watchParties').doc(watchPartyId);
+  const watchPartyRef = firebaseConfig.getDb().collection('watchParties').doc(watchPartyId);
   const watchPartyDoc = await watchPartyRef.get();
   if (!watchPartyDoc.exists) throw new Error('Watch party not found');
 
   const watchParty = watchPartyDoc.data();
+  // Defensive defaults in case fields are missing
+  watchParty.invitedUserIds = Array.isArray(watchParty.invitedUserIds) ? watchParty.invitedUserIds : [];
+  watchParty.participants = Array.isArray(watchParty.participants) ? watchParty.participants : [];
+
   if (!watchParty.isPublic && !watchParty.invitedUserIds.includes(userId)) {
     throw new Error('You are not invited to this watch party');
   }
@@ -163,11 +172,19 @@ const getWatchParty = async (watchPartyId) => {
     return cache.get(cacheKey);
   }
 
-  const watchPartyRef = db.collection('watchParties').doc(watchPartyId);
+  const watchPartyRef = firebaseConfig.getDb().collection('watchParties').doc(watchPartyId);
   const watchPartyDoc = await watchPartyRef.get();
   if (!watchPartyDoc.exists) throw new Error('Watch party not found');
   
-  const result = { id: watchPartyDoc.id, ...watchPartyDoc.data() };
+  const data = watchPartyDoc.data();
+  const result = { id: watchPartyDoc.id, ...data };
+  // Convert Firestore Timestamps to ISO strings if present
+  if (data.dateTime && typeof data.dateTime.toDate === 'function') {
+    result.dateTime = data.dateTime.toDate().toISOString();
+  }
+  if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+    result.createdAt = data.createdAt.toDate().toISOString();
+  }
   
   // Cache for 10 minutes (shorter TTL for specific watch parties)
   cache.set(cacheKey, result, 600);
@@ -184,7 +201,7 @@ async function getUserWatchParties(userId) {
   }
 
   try {
-    const watchPartiesQuery = db
+    const watchPartiesQuery = firebaseConfig.getDb()
       .collection('watchParties')
       .where('participants', 'array-contains', userId);
     const querySnapshot = await watchPartiesQuery.get();
@@ -193,8 +210,8 @@ async function getUserWatchParties(userId) {
       return {
         id: doc.id,
         ...data,
-        dateTime: data.dateTime.toDate().toISOString(),
-        createdAt: data.createdAt?.toDate().toISOString(),
+        dateTime: data.dateTime && typeof data.dateTime.toDate === 'function' ? data.dateTime.toDate().toISOString() : null,
+        createdAt: data.createdAt && typeof data.createdAt.toDate === 'function' ? data.createdAt.toDate().toISOString() : null,
       };
     });
     
@@ -216,7 +233,7 @@ const getPublicWatchParties = async () => {
     return cache.get(cacheKey);
   }
 
-  const watchPartiesSnapshot = await db.collection('watchParties')
+  const watchPartiesSnapshot = await firebaseConfig.getDb().collection('watchParties')
     .where('isPublic', '==', true)
     .where('status', '==', 'scheduled')
     .get();
@@ -229,7 +246,7 @@ const getPublicWatchParties = async () => {
 };
 
 const sendMessage = async (watchPartyId, userId, messages) => {
-  const messagesRef = db.collection('watchpartyMessages').doc();
+  const messagesRef = firebaseConfig.getDb().collection('watchpartyMessages').doc();
   const messageData = {
     watchPartyId,
     userId,
@@ -246,20 +263,20 @@ const sendMessage = async (watchPartyId, userId, messages) => {
 };
 
 const getMessages = async (watchPartyId) => {
-  const snapshot = await db.collection('watchpartyMessages')
+  const snapshot = await firebaseConfig.getDb().collection('watchpartyMessages')
     .where('watchPartyId', '==', watchPartyId)
     .get();
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 };
 
 const sendNotification = async (userId, notification) => {
-  const notificationRef = db.collection('notifications').doc(userId).collection('userNotifications').doc();
+  const notificationRef = firebaseConfig.getDb().collection('notifications').doc(userId).collection('userNotifications').doc();
   await notificationRef.set(notification);
   return { id: notificationRef.id, ...notification };
 };
 
 const getNotifications = async (userId) => {
-  const notificationsSnapshot = await db.collection('notifications').doc(userId)
+  const notificationsSnapshot = await firebaseConfig.getDb().collection('notifications').doc(userId)
     .collection('userNotifications')
     .orderBy('createdAt', 'desc')
     .get();
@@ -267,14 +284,14 @@ const getNotifications = async (userId) => {
 };
 
 const addUserPublicKey = async (watchPartyId, userId, publicKey) => {
-  const userRef = db.collection('watchpartyUsers').doc(`${watchPartyId}_${userId}`);
+  const userRef = firebaseConfig.getDb().collection('watchpartyUsers').doc(`${watchPartyId}_${userId}`);
   console.log(`Adding public key for user ${userId} in watchParty ${watchPartyId}`); // Debug log
   await userRef.set({ watchPartyId, userId, publicKey }, { merge: true });
 };
 
 const getUsers = async (watchPartyId) => {
   console.log(`Querying users for watchPartyId: ${watchPartyId}`); // Debug log
-  const snapshot = await db.collection('watchpartyUsers')
+  const snapshot = await firebaseConfig.getDb().collection('watchpartyUsers')
     .where('watchPartyId', '==', watchPartyId)
     .get();
   console.log(`Query returned ${snapshot.size} documents`); // Debug log
@@ -294,4 +311,22 @@ module.exports = {
   getUsers,
   addUserPublicKey,
   searchMovies,
+  searchUsersByUsernamePrefix,
 };
+
+// Search users by username prefix (simple Firestore range query)
+async function searchUsersByUsernamePrefix(prefix, limit = 20) {
+  if (!prefix || typeof prefix !== 'string') return [];
+  const normalized = prefix.trim().toLowerCase();
+  const end = normalized.replace(/.$/, (c) => String.fromCharCode(c.charCodeAt(0) + 1));
+
+  // Use the firebaseConfig getter at runtime to ensure Firestore is initialized
+  const db = firebaseConfig.getDb();
+  const usersSnapshot = await db.collection('users')
+    .where('username_lower', '>=', normalized)
+    .where('username_lower', '<', end)
+    .limit(limit)
+    .get();
+
+  return usersSnapshot.docs.map(doc => ({ id: doc.id, username: doc.data().username }));
+}
